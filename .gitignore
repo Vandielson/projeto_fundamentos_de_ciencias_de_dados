@@ -1,0 +1,15 @@
+# Ignorar ambiente virtual
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Arquivos temporários e de cache
+.DS_Store
+Thumbs.db
+
+# Arquivos do Streamlit
+.streamlit/
+
+# Arquivos do sistema
+*.log
