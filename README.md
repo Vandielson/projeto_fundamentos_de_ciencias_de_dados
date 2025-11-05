@@ -1,7 +1,7 @@
 # 📦 Dashboard de Logística
 
 ## 🧠 Descrição do Projeto
-Este projeto foi desenvolvido como parte da disciplina **Fundamentos em Ciência de Dados**, ministrada pelo professor **Assuero Ximenes**, no período **2025.2**.  
+Este projeto foi desenvolvido como parte da disciplina **Fundamentos em Ciência de Dados**, ministrada pelo professor **Assuero Fonseca Ximenes**, no período **2025.2**.  
 
 O objetivo é criar um **Dashboard interativo em Python utilizando Streamlit**, que permita aos gestores monitorar e analisar o estoque de produtos de uma empresa de forma dinâmica e intuitiva.
 
@@ -30,7 +30,7 @@ O objetivo é criar um **Dashboard interativo em Python utilizando Streamlit**, 
 
 1. **Clone o repositório:**
    ```bash
-   git clone https://github.com/<seu-usuario>/<nome-do-repositorio>.git
+   git clone https://github.com/Vandielson/projeto_fundamentos_de_ciencias_de_dados.git
 
 
 2. **Entre na pasta do projeto:**
