@@ -13,18 +13,18 @@ O objetivo é criar um **Dashboard interativo em Python utilizando Streamlit**, 
 - **Matplotlib / Seaborn**
 
 ## 🗂️ Estrutura do Projeto
-
-Projeto/
-│
-├── dashboard_estoque/
-│ └── app.py # Aplicação principal do dashboard
-│
-├── FCD_estoque.csv # Base de dados de estoque
-│
-├── README.md # Documentação do projeto
-│
-└── venv/ # Ambiente virtual (não versionado)
-
+      
+      Projeto/cd
+      │
+      ├── dashboard_estoque/
+      │ └── app.py # Aplicação principal do dashboard
+      │
+      ├── FCD_estoque.csv # Base de dados de estoque
+      │
+      ├── README.md # Documentação do projeto
+      │
+      └── venv/ # Ambiente virtual (não versionado)
+   
 
 ## ⚙️ Como Executar o Projeto
 
@@ -68,3 +68,4 @@ http://localhost:8501
 ## 📄 Licença
 
 Este projeto é de uso educacional, desenvolvido para fins acadêmicos na disciplina Fundamentos em Ciência de Dados.
+
