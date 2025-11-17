@@ -47,8 +47,29 @@ def carregar_dados():
 
     return df
 
+@st.cache_data
+def carregar_vendas():
+    df_vendas = pd.read_csv("dados/FCD_vendas.csv", sep=";")
+    df_vendas["data_venda"] = pd.to_datetime(df_vendas["data_venda"], dayfirst=True, errors="coerce")
+    df_vendas["quantidade_vendida"] = pd.to_numeric(df_vendas["quantidade_vendida"], errors="coerce").fillna(0)
+    df_vendas["valor_unitario"] = pd.to_numeric(df_vendas["valor_unitario"], errors="coerce").fillna(0)
+    df_vendas["valor_total"] = pd.to_numeric(df_vendas["valor_total"], errors="coerce").fillna(
+        df_vendas["quantidade_vendida"] * df_vendas["valor_unitario"]
+    )
+    return df_vendas
+
+@st.cache_data
+def carregar_clientes():
+    try:
+        return pd.read_csv("dados/FCD_clientes.csv", sep=";")
+    except:
+        return pd.DataFrame()
+
 
 df = carregar_dados()
+df_vendas = carregar_vendas()
+df_clientes = carregar_clientes()
+
 
 if menu == "Estoque":
 
