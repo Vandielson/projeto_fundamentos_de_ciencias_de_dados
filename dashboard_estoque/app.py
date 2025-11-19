@@ -2,6 +2,17 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.dates as mdates
+
+def formatar_valor_compacto(valor):
+    if valor >= 1_000_000_000:
+        return f"R$ {valor / 1_000_000_000:.1f} Bi"
+    elif valor >= 1_000_000:
+        return f"R$ {valor / 1_000_000:.1f} Mi"
+    elif valor >= 1_000:
+        return f"R$ {valor / 1_000:.0f} Mil"
+    else:
+        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # ===============================
 # Configuração da página
@@ -70,7 +81,9 @@ df = carregar_dados()
 df_vendas = carregar_vendas()
 df_clientes = carregar_clientes()
 
-
+# ===============================
+# ABA Estoque
+# ===============================
 if menu == "Estoque":
 
     # ===============================
@@ -120,7 +133,7 @@ if menu == "Estoque":
 
     col1.metric("Total de Produtos", total_produtos)
     col2.metric("Quantidade Total em Estoque", f"{quantidade_total:,}".replace(",", "."))
-    col3.metric("Valor Total em Estoque (R$)", f"{valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col3.metric("Valor Total em Estoque", formatar_valor_compacto(valor_total))
     col4.metric("Produtos Abaixo do Mínimo", abaixo_minimo)
 
     st.divider()
@@ -199,3 +212,182 @@ if menu == "Estoque":
     )
 
     st.caption("📘 Dados combinados de estoque e produtos — Atualização dinâmica conforme filtros.")
+
+# ===============================
+# ABA VENDAS
+# ===============================
+if menu == "Vendas":
+
+    st.title("💸 Dashboard de Vendas")
+
+    # ===============================
+    # JOIN CORRETO COM PRODUTOS (SEM DUPLICAR)
+    # ===============================
+
+    # IMPORTANTE: usar df_produtos em vez de df (df contém múltiplas localizações)
+    df_produtos = pd.read_csv("dados/FCD_produtos.csv", sep=";")
+
+    df_v = df_vendas.merge(
+        df_produtos[[
+            "produto_id", "produto_nome", "categoria", "marca", "preco_unitario"
+        ]],
+        on="produto_id",
+        how="left"
+    )
+
+    # JOIN COM CLIENTES
+    if not df_clientes.empty:
+        df_v = df_v.merge(
+            df_clientes[["cliente_id", "nome"]],
+            on="cliente_id",
+            how="left"
+        )
+        df_v.rename(columns={"nome": "cliente_nome"}, inplace=True)
+
+    # Coluna loja formatada
+    df_v["loja"] = df_v["loja_id"].apply(lambda x: f"Loja {x}")
+
+    # Converter datas
+    df_v["data_venda"] = pd.to_datetime(df_v["data_venda"], dayfirst=True, errors="coerce")
+
+    # ===============================
+    # FILTROS
+    # ===============================
+    st.sidebar.header("Filtros — Vendas")
+
+    lojas = sorted(df_v["loja"].dropna().unique())
+    produtos = sorted(df_v["produto_nome"].dropna().unique())
+    clientes = sorted(df_v["cliente_nome"].dropna().unique()) if "cliente_nome" in df_v.columns else []
+
+    loja_sel = st.sidebar.multiselect("Loja", lojas)
+    prod_sel = st.sidebar.multiselect("Produto", produtos)
+    cli_sel = st.sidebar.multiselect("Cliente", clientes)
+
+    # Período
+    min_dt = df_v["data_venda"].min()
+    max_dt = df_v["data_venda"].max()
+    periodo = st.sidebar.date_input("Período", (min_dt, max_dt))
+
+    if not loja_sel:
+        loja_sel = lojas
+    if not prod_sel:
+        prod_sel = produtos
+    if clientes and not cli_sel:
+        cli_sel = clientes
+
+    # Filtrar por período
+    if isinstance(periodo, tuple) and len(periodo) == 2:
+        start_dt, end_dt = periodo
+        df_f = df_v[
+            (df_v["data_venda"] >= pd.to_datetime(start_dt))
+            & (df_v["data_venda"] <= pd.to_datetime(end_dt))
+        ]
+    else:
+        df_f = df_v.copy()
+
+    # Filtros restantes
+    df_f = df_f[df_f["loja"].isin(loja_sel)]
+    df_f = df_f[df_f["produto_nome"].isin(prod_sel)]
+    if cli_sel:
+        df_f = df_f[df_f["cliente_nome"].isin(cli_sel)]
+
+    # ===============================
+    # INDICADORES
+    # ===============================
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Itens Vendidos", int(df_f["quantidade_vendida"].sum()))
+
+    receita_total = df_f["valor_total"].sum()
+    col2.metric("Receita Total", formatar_valor_compacto(receita_total))
+
+    col3.metric("Transações", df_f.shape[0])
+
+    col4.metric(
+        "Ticket Médio",
+        f"R$ {df_f['valor_total'].mean():,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        if df_f.shape[0] > 0 else "R$ 0,00"
+    )
+
+    st.divider()
+
+    # ===============================
+    # GRÁFICO — Série Temporal
+    # ===============================
+    st.subheader("📈 Vendas por Mês")
+
+    df_f["ano_mes"] = df_f["data_venda"].dt.to_period("M")
+    df_ts = df_f.groupby("ano_mes")["quantidade_vendida"].sum().reset_index()
+    df_ts["ano_mes_dt"] = df_ts["ano_mes"].dt.to_timestamp()
+    df_ts = df_ts.sort_values("ano_mes_dt")
+
+    meses_map = {
+        1: "jan", 2: "fev", 3: "mar", 4: "abr", 5: "mai", 6: "jun",
+        7: "jul", 8: "ago", 9: "set", 10: "out", 11: "nov", 12: "dez"
+    }
+
+    fig, ax = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+    ax.plot(df_ts["ano_mes_dt"], df_ts["quantidade_vendida"], marker="o", linewidth=2, color="#00BFFF")
+
+    import matplotlib.ticker as ticker
+
+    def formatar_mes(x, pos):
+        try:
+            dt = mdates.num2date(x)
+            return f"{meses_map[dt.month]}/{str(dt.year)[2:]}"
+        except:
+            return ""
+
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(formatar_mes))
+
+    ax.set_title("Quantidade Vendida por Mês", color="white")
+    ax.set_xlabel("Mês", color="white")
+    ax.set_ylabel("Itens Vendidos", color="white")
+    ax.tick_params(colors="white")
+
+    fig.autofmt_xdate()
+    ax.set_facecolor("#0E1117")
+    fig.patch.set_facecolor("#0E1117")
+
+    st.pyplot(fig, use_container_width=True)
+
+    st.divider()
+
+    # ===============================
+    # TOP 10 Produtos
+    # ===============================
+    st.subheader("🏆 Top 10 Produtos Mais Vendidos")
+
+    top10 = (
+        df_f.groupby("produto_nome")["quantidade_vendida"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+    )
+
+    fig2, ax2 = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+    ax2.barh(top10.index[::-1], top10.values[::-1], color="#00BFFF")
+    ax2.set_title("Top 10 Produtos", color="white")
+    ax2.tick_params(colors="white")
+    ax2.set_facecolor("#0E1117")
+    fig2.patch.set_facecolor("#0E1117")
+
+    st.pyplot(fig2, use_container_width=True)
+
+    st.divider()
+
+    # ===============================
+    # Tabela
+    # ===============================
+    st.subheader("📋 Registros de Vendas")
+
+    df_show = df_f[[
+        "venda_id", "data_venda", "loja", "produto_nome",
+        "cliente_nome", "quantidade_vendida",
+        "valor_unitario", "valor_total", "forma_pagamento", "canal_venda"
+    ]].copy()
+
+    df_show["data_venda"] = df_show["data_venda"].dt.strftime("%d/%m/%Y")
+
+    st.dataframe(df_show, use_container_width=True)
