@@ -14,16 +14,20 @@ O objetivo é criar um **Dashboard interativo em Python utilizando Streamlit**, 
 
 ## 🗂️ Estrutura do Projeto
       
-      Projeto/cd
-      │
-      ├── dashboard_estoque/
-      │ └── app.py # Aplicação principal do dashboard
-      │
-      ├── FCD_estoque.csv # Base de dados de estoque
-      │
-      ├── README.md # Documentação do projeto
-      │
-      └── venv/ # Ambiente virtual (não versionado)
+      Projeto/
+│
+├── dashboard_sistema/
+│   └── app.py               # Aplicação principal
+│
+├── dados/
+│   ├── FCD_estoque.csv      # Base de estoque
+│   ├── FCD_produtos.csv     # Base de produtos
+│   ├── FCD_vendas.csv       # Base de vendas
+│   └── FCD_clientes.csv     # Base de clientes
+│
+├── README.md                # Documentação do projeto
+│
+└── venv/                    # Ambiente virtual (não versionado)
    
 
 ## ⚙️ Como Executar o Projeto
@@ -51,7 +55,7 @@ O objetivo é criar um **Dashboard interativo em Python utilizando Streamlit**, 
 
 5. **Execute o aplicativo:**
     ```bash
-    streamlit run dashboard_estoque/app.py
+    streamlit run dashboard_sistema/app.py
 
 
 6. **Abra no navegador:**
