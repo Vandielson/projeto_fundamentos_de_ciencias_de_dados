@@ -26,7 +26,7 @@ st.set_page_config(
 # ===============================
 # Navegação do Sistema (Abas)
 # ===============================
-menu = st.sidebar.radio("📚 Navegação", ["Estoque", "Vendas"])
+menu = st.sidebar.radio("📚 Navegação", ["Estoque", "Vendas", "Compras"])
 
 # ===============================
 # Leitura dos Dados
@@ -389,5 +389,213 @@ if menu == "Vendas":
     ]].copy()
 
     df_show["data_venda"] = df_show["data_venda"].dt.strftime("%d/%m/%Y")
+
+    st.dataframe(df_show, use_container_width=True)
+
+# ===============================
+# ABA COMPRAS
+# ===============================
+if menu == "Compras":
+
+    st.title("🛒 Dashboard de Compras & Fornecedores")
+
+    # ===============================
+    # Carregar compras
+    # ===============================
+    df_compras = pd.read_csv("dados/FCD_compras.csv", sep=";")
+
+    # Converter tipos
+    df_compras["data_compra"] = pd.to_datetime(df_compras["data_compra"], dayfirst=True, errors="coerce")
+    df_compras["quantidade_comprada"] = pd.to_numeric(df_compras["quantidade_comprada"], errors="coerce").fillna(0)
+    df_compras["valor_unitario"] = pd.to_numeric(df_compras["valor_unitario"], errors="coerce").fillna(0)
+
+    # Se valor_total vier errado → recalcula
+    df_compras["valor_total"] = pd.to_numeric(df_compras["valor_total"], errors="coerce")
+    df_compras["valor_total"] = df_compras["valor_total"].fillna(
+        df_compras["quantidade_comprada"] * df_compras["valor_unitario"]
+    )
+
+    # JOIN com produtos para nome/categoria
+    df_produtos = pd.read_csv("dados/FCD_produtos.csv", sep=";")
+    df_c = df_compras.merge(
+        df_produtos[["produto_id", "produto_nome", "categoria", "marca"]],
+        on="produto_id",
+        how="left"
+    )
+
+    # ===============================
+    # FILTROS
+    # ===============================
+    st.sidebar.header("Filtros — Compras")
+
+    fornecedores = sorted(df_c["fornecedor"].dropna().unique())
+    produtos = sorted(df_c["produto_nome"].dropna().unique())
+
+    forn_sel = st.sidebar.multiselect("Fornecedor", fornecedores)
+    prod_sel = st.sidebar.multiselect("Produto", produtos)
+
+    # Período
+    min_dt = df_c["data_compra"].min()
+    max_dt = df_c["data_compra"].max()
+    periodo = st.sidebar.date_input("Período", (min_dt, max_dt))
+
+    # Defaults
+    if not forn_sel:
+        forn_sel = fornecedores
+    if not prod_sel:
+        prod_sel = produtos
+
+    start_dt, end_dt = periodo
+
+    df_f = df_c[
+        (df_c["fornecedor"].isin(forn_sel)) &
+        (df_c["produto_nome"].isin(prod_sel)) &
+        (df_c["data_compra"] >= pd.to_datetime(start_dt)) &
+        (df_c["data_compra"] <= pd.to_datetime(end_dt))
+    ]
+
+    # ===============================
+    # INDICADORES
+    # ===============================
+    col1, col2, col3, col4 = st.columns(4)
+
+    total_compras = df_f["compra_id"].count()
+    total_gasto = df_f["valor_total"].sum()
+    prazo_medio = df_f["prazo_entrega_dias"].mean()
+    itens_comprados = df_f["quantidade_comprada"].sum()
+
+    col1.metric("Total de Compras", total_compras)
+    col2.metric("Gasto Total", formatar_valor_compacto(total_gasto))
+    col3.metric("Prazo Médio (dias)", f"{prazo_medio:.1f}" if not pd.isna(prazo_medio) else "0")
+    col4.metric("Itens Comprados", int(itens_comprados))
+
+    st.divider()
+
+    # Tema escuro dos gráficos
+    plt.style.use("dark_background")
+    sns.set_theme(style="darkgrid", palette="crest")
+
+    # ===============================
+    # Comparativo entre fornecedores
+    # ===============================
+    st.subheader("🏭 Comparativo entre Fornecedores (Preço Médio e Prazo Médio)")
+
+    df_forn = df_f.groupby("fornecedor").agg({
+        "valor_unitario": "mean",
+        "prazo_entrega_dias": "mean"
+    }).reset_index()
+
+    if not df_forn.empty:
+        fig, ax = plt.subplots(figsize=(9, 5), facecolor="#0E1117")
+
+        ax.scatter(
+            df_forn["valor_unitario"],
+            df_forn["prazo_entrega_dias"],
+            s=200,
+            color="#00BFFF",
+            alpha=0.8
+        )
+
+        for _, row in df_forn.iterrows():
+            ax.text(
+                row["valor_unitario"],
+                row["prazo_entrega_dias"],
+                row["fornecedor"],
+                color="white",
+                fontsize=8
+            )
+
+        ax.set_xlabel("Preço Médio (R$)", color="white")
+        ax.set_ylabel("Prazo Médio de Entrega (dias)", color="white")
+        ax.set_title("Comparativo de Fornecedores", color="white", fontsize=12)
+        ax.tick_params(colors="white")
+        ax.set_facecolor("#0E1117")
+        fig.patch.set_facecolor("#0E1117")
+
+        st.pyplot(fig, use_container_width=True)
+    else:
+        st.info("Nenhum dado disponível para exibir o comparativo.")
+
+    st.divider()
+
+    # ===============================
+    # Volume de Compras por Mês
+    # ===============================
+    st.subheader("📈 Volume de Compras por Mês")
+
+    df_f["ano_mes"] = df_f["data_compra"].dt.to_period("M")
+    df_ts = df_f.groupby("ano_mes")["valor_total"].sum().reset_index()
+    df_ts["ano_mes_dt"] = df_ts["ano_mes"].dt.to_timestamp()
+
+    meses_map = {
+        1: "jan", 2: "fev", 3: "mar", 4: "abr", 5: "mai", 6: "jun",
+        7: "jul", 8: "ago", 9: "set", 10: "out", 11: "nov", 12: "dez"
+    }
+
+    import matplotlib.ticker as ticker
+
+    def formatar_mes(x, pos):
+        try:
+            dt = mdates.num2date(x)
+            return f"{meses_map[dt.month]}/{str(dt.year)[2:]}"
+        except:
+            return ""
+
+    if not df_ts.empty:
+        fig2, ax2 = plt.subplots(figsize=(9, 4), facecolor="#0E1117")
+        ax2.plot(df_ts["ano_mes_dt"], df_ts["valor_total"], marker="o", color="#00BFFF")
+
+        ax2.xaxis.set_major_locator(mdates.MonthLocator())
+        ax2.xaxis.set_major_formatter(ticker.FuncFormatter(formatar_mes))
+
+        ax2.set_title("Volume de Compras por Mês", color="white")
+        ax2.set_xlabel("Mês", color="white")
+        ax2.set_ylabel("Valor (R$)", color="white")
+        ax2.tick_params(colors="white")
+
+        fig2.autofmt_xdate()
+        ax2.set_facecolor("#0E1117")
+        fig2.patch.set_facecolor("#0E1117")
+
+        st.pyplot(fig2, use_container_width=True)
+    else:
+        st.info("Nenhum dado disponível para gerar série temporal.")
+
+    st.divider()
+
+    # ===============================
+    # Produtos com maior gasto
+    # ===============================
+    st.subheader("💰 Produtos com Maior Gasto em Compras")
+
+    top_prod = (
+        df_f.groupby("produto_nome")["valor_total"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+    )
+
+    if not top_prod.empty:
+        fig3, ax3 = plt.subplots(figsize=(9, 4), facecolor="#0E1117")
+        ax3.barh(top_prod.index[::-1], top_prod.values[::-1], color="#00BFFF")
+
+        ax3.set_title("Top 10 Produtos por Gasto", color="white")
+        ax3.tick_params(colors="white")
+        ax3.set_facecolor("#0E1117")
+        fig3.patch.set_facecolor("#0E1117")
+
+        st.pyplot(fig3, use_container_width=True)
+    else:
+        st.info("Nenhum dado disponível para exibir ranking de produtos.")
+
+    st.divider()
+
+    # ===============================
+    # Tabela final
+    # ===============================
+    st.subheader("📋 Registros de Compras")
+
+    df_show = df_f.copy()
+    df_show["data_compra"] = df_show["data_compra"].dt.strftime("%d/%m/%Y")
 
     st.dataframe(df_show, use_container_width=True)
