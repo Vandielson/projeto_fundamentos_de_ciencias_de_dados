@@ -14,20 +14,21 @@ O objetivo é criar um **Dashboard interativo em Python utilizando Streamlit**, 
 
 ## 🗂️ Estrutura do Projeto
       
-      Projeto/
-│
-├── dashboard_sistema/
-│   └── app.py               # Aplicação principal
-│
-├── dados/
-│   ├── FCD_estoque.csv      # Base de estoque
-│   ├── FCD_produtos.csv     # Base de produtos
-│   ├── FCD_vendas.csv       # Base de vendas
-│   └── FCD_clientes.csv     # Base de clientes
-│
-├── README.md                # Documentação do projeto
-│
-└── venv/                    # Ambiente virtual (não versionado)
+   Projeto/
+   │
+   ├── dashboard_sistema/
+   │   └── app.py                   # Aplicação principal (Estoque + Vendas + Compras)
+   │
+   ├── dados/
+   │   ├── FCD_estoque.csv          # Base de estoque
+   │   ├── FCD_produtos.csv         # Base de produtos
+   │   ├── FCD_vendas.csv           # Base de vendas
+   │   ├── FCD_clientes.csv         # Base de clientes
+   │   └── FCD_compras.csv          # Base de compras e fornecedores
+   │
+   ├── README.md                    # Documentação do projeto
+   │
+   └── venv/                        # Ambiente virtual (não versionado)
    
 
 ## ⚙️ Como Executar o Projeto
