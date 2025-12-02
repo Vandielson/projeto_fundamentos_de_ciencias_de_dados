@@ -18,7 +18,7 @@ def formatar_valor_compacto(valor):
 # Configuração da página
 # ===============================
 st.set_page_config(
-    page_title="Dashboard de Controle de Estoque & Vendas",
+    page_title="Dashboard de Controle de Estoque, Vendas & Compras",
     layout="wide",
     page_icon="📦"
 )
@@ -26,7 +26,7 @@ st.set_page_config(
 # ===============================
 # Navegação do Sistema (Abas)
 # ===============================
-menu = st.sidebar.radio("📚 Navegação", ["Estoque", "Vendas", "Compras"])
+menu = st.sidebar.radio("📚 Navegação", ["Visão Geral", "Estoque", "Vendas", "Compras"])
 
 # ===============================
 # Leitura dos Dados
@@ -599,3 +599,235 @@ if menu == "Compras":
     df_show["data_compra"] = df_show["data_compra"].dt.strftime("%d/%m/%Y")
 
     st.dataframe(df_show, use_container_width=True)
+
+# ===============================
+# ABA VISÃO GERAL (CORRIGIDA + filtro por Loja)
+# ===============================
+if menu == "Visão Geral":
+
+    st.title("🌐 Visão Geral — Super Dashboard Integrado")
+
+    # ===============================
+    # Carregar compras (cache local)
+    # ===============================
+    @st.cache_data
+    def carregar_compras():
+        try:
+            df_c = pd.read_csv("dados/FCD_compras.csv", sep=";")
+            df_c["data_compra"] = pd.to_datetime(df_c["data_compra"], dayfirst=True, errors="coerce")
+            df_c["quantidade_comprada"] = pd.to_numeric(df_c["quantidade_comprada"], errors="coerce").fillna(0)
+            df_c["valor_unitario"] = pd.to_numeric(df_c["valor_unitario"], errors="coerce").fillna(0)
+            df_c["valor_total"] = pd.to_numeric(df_c["valor_total"], errors="coerce").fillna(
+                df_c["quantidade_comprada"] * df_c["valor_unitario"]
+            )
+            return df_c
+        except Exception:
+            st.error("❌ Arquivo FCD_compras.csv não encontrado ou inválido.")
+            return pd.DataFrame()
+
+    df_compras = carregar_compras()
+
+    # ===============================
+    # Carregar produtos (BASE LIMPA)
+    # ===============================
+    df_produtos = pd.read_csv("dados/FCD_produtos.csv", sep=";")
+
+    # ===============================
+    # Filtros Visão Geral (inclui Loja)
+    # ===============================
+    st.sidebar.header("Filtros — Visão Geral")
+
+    produtos = sorted(df_produtos["produto_nome"].dropna().unique())
+    categorias = sorted(df_produtos["categoria"].dropna().unique())
+
+    # Lojas (extraídas da base de vendas original)
+    if "loja_id" in df_vendas.columns:
+        lojas_ids = sorted(df_vendas["loja_id"].dropna().unique())
+        lojas = [f"Loja {int(x)}" for x in lojas_ids]
+    else:
+        lojas = []
+
+    prod_sel = st.sidebar.multiselect("Produto", produtos)
+    categoria_sel = st.sidebar.multiselect("Categoria", categorias)
+    loja_sel = st.sidebar.multiselect("Loja", lojas)
+
+    # defaults — se nada selecionado, seleciona tudo
+    if not prod_sel:
+        prod_sel = produtos
+    if not categoria_sel:
+        categoria_sel = categorias
+    if lojas and not loja_sel:
+        loja_sel = lojas
+
+    # Período unificado (defensivo)
+    date_candidates_min = []
+    date_candidates_max = []
+    if not df_vendas["data_venda"].dropna().empty:
+        date_candidates_min.append(df_vendas["data_venda"].min())
+        date_candidates_max.append(df_vendas["data_venda"].max())
+    if not df_compras["data_compra"].dropna().empty:
+        date_candidates_min.append(df_compras["data_compra"].min())
+        date_candidates_max.append(df_compras["data_compra"].max())
+
+    if date_candidates_min:
+        min_dt = min(date_candidates_min)
+        max_dt = max(date_candidates_max)
+    else:
+        # fallback para hoje caso não haja datas
+        min_dt = pd.Timestamp.today()
+        max_dt = pd.Timestamp.today()
+
+    periodo = st.sidebar.date_input("Período", (min_dt, max_dt))
+    # garantir tupla (quando o usuário escolher só uma data, tratamos como período único)
+    if isinstance(periodo, tuple) and len(periodo) == 2:
+        start_dt, end_dt = periodo
+    else:
+        start_dt = periodo
+        end_dt = periodo
+
+    # ===============================
+    # Preparação das bases SEM duplicação
+    # ===============================
+
+    # Estoque (base df já contém estoque por localizacao; usamos produto_nome para filtro de catálogo)
+    df_e = df[df["produto_nome"].isin(prod_sel) & df["categoria"].isin(categoria_sel)].copy()
+
+    # Vendas (usar df_produtos para evitar multiplicação por localizacao)
+    df_v = df_vendas.merge(
+        df_produtos[["produto_id", "produto_nome", "categoria"]],
+        on="produto_id",
+        how="left"
+    )
+    # coluna loja formatada (string)
+    if "loja_id" in df_v.columns:
+        df_v["loja"] = df_v["loja_id"].apply(lambda x: f"Loja {int(x)}")
+    else:
+        df_v["loja"] = None
+
+    # aplicar filtros: produto, categoria, loja e período
+    mask_v = df_v["produto_nome"].isin(prod_sel) & df_v["categoria"].isin(categoria_sel)
+    mask_v &= (df_v["data_venda"] >= pd.to_datetime(start_dt)) & (df_v["data_venda"] <= pd.to_datetime(end_dt))
+    if lojas:
+        mask_v &= df_v["loja"].isin(loja_sel)
+    df_v = df_v[mask_v].copy()
+
+    # Compras (usar df_compras + produtos limpos)
+    df_c = df_compras.merge(
+        df_produtos[["produto_id", "produto_nome", "categoria"]],
+        on="produto_id",
+        how="left"
+    )
+    mask_c = df_c["produto_nome"].isin(prod_sel) & df_c["categoria"].isin(categoria_sel)
+    mask_c &= (df_c["data_compra"] >= pd.to_datetime(start_dt)) & (df_c["data_compra"] <= pd.to_datetime(end_dt))
+    df_c = df_c[mask_c].copy()
+
+    # ===============================
+    # Indicadores Integrados
+    # ===============================
+    st.subheader("📊 Indicadores Integrados")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    estoque_total = df_e["valor_total"].sum()
+    estoque_critico = int(df_e[df_e["quantidade_estoque"] < df_e["estoque_minimo"]].shape[0])
+
+    vendidos = int(df_v["quantidade_vendida"].sum()) if not df_v.empty else 0
+    receita = float(df_v["valor_total"].sum()) if not df_v.empty else 0.0
+
+    comprados = int(df_c["quantidade_comprada"].sum()) if not df_c.empty else 0
+    gasto_total = float(df_c["valor_total"].sum()) if not df_c.empty else 0.0
+    prazo_medio = df_c["prazo_entrega_dias"].mean() if not df_c.empty else float("nan")
+
+    col1.metric("Valor Total em Estoque", formatar_valor_compacto(estoque_total))
+    col2.metric("Itens Vendidos", vendidos)
+    col3.metric("Receita Total", formatar_valor_compacto(receita))
+    col4.metric("Quantidade Comprada", comprados)
+    col5.metric("Prazo Médio de Entrega", f"{prazo_medio:.1f} dias" if not pd.isna(prazo_medio) else "-")
+
+    st.divider()
+
+    # ===============================
+    # Gráfico — Vendas vs Compras por Mês (com índices ordenados)
+    # ===============================
+    st.subheader("📈 Vendas vs Compras por Mês")
+
+    # criar série mensal a partir de períodos (mantendo months ordenados)
+    if not df_v.empty:
+        df_v["ano_mes"] = df_v["data_venda"].dt.to_period("M")
+        df_vs = df_v.groupby("ano_mes")["quantidade_vendida"].sum()
+    else:
+        df_vs = pd.Series(dtype="int64")
+
+    if not df_c.empty:
+        df_c["ano_mes"] = df_c["data_compra"].dt.to_period("M")
+        df_cs = df_c.groupby("ano_mes")["quantidade_comprada"].sum()
+    else:
+        df_cs = pd.Series(dtype="int64")
+
+    df_merge = pd.DataFrame({"Vendas": df_vs, "Compras": df_cs}).fillna(0)
+    df_merge = df_merge.sort_index()
+
+    fig, ax = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+    if not df_merge.empty:
+        ax.plot(df_merge.index.astype(str), df_merge["Vendas"], marker="o", label="Vendas", color="#00BFFF")
+        ax.plot(df_merge.index.astype(str), df_merge["Compras"], marker="o", label="Compras", color="#FF6347")
+    ax.set_title("Vendas vs Compras por Mês", color="white")
+    ax.set_xlabel("Mês", color="white")
+    ax.set_ylabel("Quantidade", color="white")
+    ax.tick_params(colors="white")
+    ax.legend(facecolor="#0E1117", labelcolor="white")
+    ax.set_facecolor("#0E1117")
+    fig.patch.set_facecolor("#0E1117")
+    st.pyplot(fig, use_container_width=True)
+
+    st.divider()
+
+    # ===============================
+    # TOP FORNECEDORES
+    # ===============================
+    st.subheader("🏆 Top Fornecedores por Gasto")
+
+    if not df_c.empty:
+        top_fornecedores = (
+            df_c.groupby("fornecedor")["valor_total"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(10)
+        )
+    else:
+        top_fornecedores = pd.Series(dtype="float64")
+
+    fig2, ax2 = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+    if not top_fornecedores.empty:
+        ax2.barh(top_fornecedores.index[::-1], top_fornecedores.values[::-1], color="#00BFFF")
+    ax2.set_title("Top Fornecedores por Gasto", color="white")
+    ax2.tick_params(colors="white")
+    ax2.set_facecolor("#0E1117")
+    fig2.patch.set_facecolor("#0E1117")
+    st.pyplot(fig2, use_container_width=True)
+
+    st.divider()
+
+    # ===============================
+    # Tabela Integrada por Produto
+    # ===============================
+    st.subheader("📋 Dados Integrados por Produto")
+
+    df_int = df_e[[
+        "produto_id", "produto_nome", "categoria",
+        "quantidade_estoque", "estoque_minimo", "valor_total"
+    ]].copy()
+
+    # total vendido e comprado no período filtrado
+    vendas_por_prod = df_v.groupby("produto_id")["quantidade_vendida"].sum()
+    compras_por_prod = df_c.groupby("produto_id")["quantidade_comprada"].sum()
+
+    df_int = df_int.merge(vendas_por_prod, on="produto_id", how="left").rename(columns={"quantidade_vendida": "total_vendido"})
+    df_int = df_int.merge(compras_por_prod, on="produto_id", how="left").rename(columns={"quantidade_comprada": "total_comprado"})
+
+    df_int["total_vendido"] = df_int["total_vendido"].fillna(0).astype(int)
+    df_int["total_comprado"] = df_int["total_comprado"].fillna(0).astype(int)
+
+    st.dataframe(df_int, use_container_width=True)
+
+    st.caption("🔎 Visão consolidada: estoque + vendas + compras para tomada de decisão estratégica.")
