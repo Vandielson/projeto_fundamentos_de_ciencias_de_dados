@@ -751,33 +751,69 @@ if menu == "Visão Geral":
     # ===============================
     st.subheader("📈 Vendas vs Compras por Mês")
 
-    # criar série mensal a partir de períodos (mantendo months ordenados)
+    # Preparar Vendas
     if not df_v.empty:
         df_v["ano_mes"] = df_v["data_venda"].dt.to_period("M")
-        df_vs = df_v.groupby("ano_mes")["quantidade_vendida"].sum()
+        df_vs = df_v.groupby("ano_mes")["quantidade_vendida"].sum().reset_index()
+        df_vs["ano_mes_dt"] = df_vs["ano_mes"].dt.to_timestamp()
     else:
-        df_vs = pd.Series(dtype="int64")
+        df_vs = pd.DataFrame({"ano_mes_dt": [], "quantidade_vendida": []})
 
+    # Preparar Compras
     if not df_c.empty:
         df_c["ano_mes"] = df_c["data_compra"].dt.to_period("M")
-        df_cs = df_c.groupby("ano_mes")["quantidade_comprada"].sum()
+        df_cs = df_c.groupby("ano_mes")["quantidade_comprada"].sum().reset_index()
+        df_cs["ano_mes_dt"] = df_cs["ano_mes"].dt.to_timestamp()
     else:
-        df_cs = pd.Series(dtype="int64")
+        df_cs = pd.DataFrame({"ano_mes_dt": [], "quantidade_comprada": []})
 
-    df_merge = pd.DataFrame({"Vendas": df_vs, "Compras": df_cs}).fillna(0)
-    df_merge = df_merge.sort_index()
+    # Merge das séries temporais
+    df_merge = pd.merge(
+        df_vs[["ano_mes_dt", "quantidade_vendida"]],
+        df_cs[["ano_mes_dt", "quantidade_comprada"]],
+        on="ano_mes_dt",
+        how="outer"
+    ).fillna(0)
 
+    df_merge = df_merge.sort_values("ano_mes_dt")
+
+    # Mapeamento dos meses
+    meses_map = {
+        1: "jan", 2: "fev", 3: "mar", 4: "abr", 5: "mai", 6: "jun",
+        7: "jul", 8: "ago", 9: "set", 10: "out", 11: "nov", 12: "dez"
+    }
+
+    import matplotlib.ticker as ticker
+
+    def formatar_mes(x, pos):
+        try:
+            dt = mdates.num2date(x)
+            return f"{meses_map[dt.month]}/{str(dt.year)[2:]}"
+        except:
+            return ""
+
+    # Plot
     fig, ax = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
-    if not df_merge.empty:
-        ax.plot(df_merge.index.astype(str), df_merge["Vendas"], marker="o", label="Vendas", color="#00BFFF")
-        ax.plot(df_merge.index.astype(str), df_merge["Compras"], marker="o", label="Compras", color="#FF6347")
+
+    ax.plot(df_merge["ano_mes_dt"], df_merge["quantidade_vendida"],
+            marker="o", label="Vendas", color="#00BFFF")
+    ax.plot(df_merge["ano_mes_dt"], df_merge["quantidade_comprada"],
+            marker="o", label="Compras", color="#FF6347")
+
+    # Aplicar formatação do eixo X igual à aba de vendas
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(formatar_mes))
+
     ax.set_title("Vendas vs Compras por Mês", color="white")
     ax.set_xlabel("Mês", color="white")
     ax.set_ylabel("Quantidade", color="white")
     ax.tick_params(colors="white")
     ax.legend(facecolor="#0E1117", labelcolor="white")
+
+    fig.autofmt_xdate()
     ax.set_facecolor("#0E1117")
     fig.patch.set_facecolor("#0E1117")
+
     st.pyplot(fig, use_container_width=True)
 
     st.divider()
