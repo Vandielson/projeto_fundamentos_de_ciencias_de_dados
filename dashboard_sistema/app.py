@@ -3,6 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.dates as mdates
+import pydeck as pdk
+import numpy as np
 
 def formatar_valor_compacto(valor):
     if valor >= 1_000_000_000:
@@ -26,7 +28,10 @@ st.set_page_config(
 # ===============================
 # Navegação do Sistema (Abas)
 # ===============================
-menu = st.sidebar.radio("📚 Navegação", ["Visão Geral", "Estoque", "Vendas", "Compras"])
+menu = st.sidebar.radio(
+    "📚 Navegação",
+    ["Visão Geral", "Estoque", "Vendas", "Compras", "Performance Logística"]
+)
 
 # ===============================
 # Leitura dos Dados
@@ -601,7 +606,7 @@ if menu == "Compras":
     st.dataframe(df_show, use_container_width=True)
 
 # ===============================
-# ABA VISÃO GERAL (CORRIGIDA + filtro por Loja)
+# ABA VISÃO GERAL
 # ===============================
 if menu == "Visão Geral":
 
@@ -867,3 +872,213 @@ if menu == "Visão Geral":
     st.dataframe(df_int, use_container_width=True)
 
     st.caption("🔎 Visão consolidada: estoque + vendas + compras para tomada de decisão estratégica.")
+
+# ===============================
+# ABA PERFORMANCE LOGÍSTICA
+# ===============================
+if menu == "Performance Logística":
+
+    st.title("🚚 Dashboard de Performance Logística")
+
+    # ===============================
+    # Carregar Dados
+    # ===============================
+    @st.cache_data
+    def carregar_logistica():
+        try:
+            df_l = pd.read_csv("dados/FCD_logistica.csv", sep=";")
+
+            df_l["data_pedido"] = pd.to_datetime(df_l["data_pedido"], dayfirst=True, errors="coerce")
+            df_l["data_entrega"] = pd.to_datetime(df_l["data_entrega"], dayfirst=True, errors="coerce")
+
+            df_l["prazo_estimado_dias"] = pd.to_numeric(df_l["prazo_estimado_dias"], errors="coerce")
+            df_l["prazo_real_dias"] = pd.to_numeric(df_l["prazo_real_dias"], errors="coerce")
+            df_l["custo_transporte"] = pd.to_numeric(df_l["custo_transporte"], errors="coerce")
+
+            return df_l
+
+        except:
+            st.error("❌ Arquivo FCD_logistica.csv não encontrado.")
+            return pd.DataFrame()
+
+    df_log = carregar_logistica()
+
+    if df_log.empty:
+        st.stop()
+
+    # ===============================
+    # FILTROS
+    # ===============================
+    st.sidebar.header("Filtros — Logística")
+
+    transportadoras = sorted(df_log["transportadora"].dropna().unique())
+    cidades = sorted(df_log["cidade_destino"].dropna().unique())
+
+    transp_sel = st.sidebar.multiselect("Transportadora", transportadoras)
+    cidade_sel = st.sidebar.multiselect("Cidade Destino", cidades)
+
+    min_dt = df_log["data_pedido"].min()
+    max_dt = df_log["data_pedido"].max()
+
+    periodo = st.sidebar.date_input("Período", (min_dt, max_dt))
+
+    if not transp_sel:
+        transp_sel = transportadoras
+    if not cidade_sel:
+        cidade_sel = cidades
+
+    start_dt, end_dt = periodo
+
+    df_f = df_log[
+        (df_log["transportadora"].isin(transp_sel)) &
+        (df_log["cidade_destino"].isin(cidade_sel)) &
+        (df_log["data_pedido"] >= pd.to_datetime(start_dt)) &
+        (df_log["data_pedido"] <= pd.to_datetime(end_dt))
+    ]
+
+    # ===============================
+    # KPI – Entregas no Prazo (%)
+    # ===============================
+    st.subheader("📦 KPI – Entregas no Prazo")
+
+    total = df_f.shape[0]
+    no_prazo = df_f[df_f["prazo_real_dias"] <= df_f["prazo_estimado_dias"]].shape[0]
+
+    percentual = (no_prazo / total * 100) if total > 0 else 0
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Total de Entregas", total)
+    col2.metric("Entregas no Prazo", no_prazo)
+
+    # indicador visual simples por cor
+    if percentual >= 90:
+        cor = "🟢"
+    elif percentual >= 75:
+        cor = "🟡"
+    else:
+        cor = "🔴"
+
+    col3.metric("Percentual no Prazo", f"{percentual:.1f}% {cor}")
+
+    st.divider()
+
+    # ===============================
+    # Tempo Médio por Transportadora
+    # ===============================
+    st.subheader("⏱ Tempo Médio de Entrega por Transportadora")
+
+    df_transp = (
+        df_f.groupby("transportadora")["prazo_real_dias"]
+        .mean()
+        .sort_values()
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+
+    ax.barh(df_transp.index, df_transp.values, color="#00BFFF")
+    ax.set_title("Tempo Médio Real de Entrega (dias)", color="white")
+    ax.set_xlabel("Dias", color="white")
+    ax.tick_params(colors="white")
+    ax.set_facecolor("#0E1117")
+    fig.patch.set_facecolor("#0E1117")
+
+    st.pyplot(fig, use_container_width=True)
+
+    st.divider()
+
+    # ===============================
+    # Custos Logísticos — Top 10 Cidades
+    # ===============================
+    st.subheader("💰 Top 10 Cidades por Custo Logístico")
+
+    df_custo = (
+        df_f.groupby("cidade_destino")["custo_transporte"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+    )
+
+    if not df_custo.empty:
+
+        fig2, ax2 = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+
+        # inverter para maior aparecer no topo
+        ax2.barh(df_custo.index[::-1], df_custo.values[::-1], color="#FF6347")
+
+        ax2.set_title("Top 10 Cidades — Custo Total de Transporte", color="white")
+        ax2.set_xlabel("Custo Total (R$)", color="white")
+        ax2.tick_params(colors="white")
+
+        ax2.set_facecolor("#0E1117")
+        fig2.patch.set_facecolor("#0E1117")
+
+        st.pyplot(fig2, use_container_width=True)
+
+    else:
+        st.info("Nenhum dado disponível para exibir ranking.")
+
+    st.divider()
+
+    # ===============================
+    # MAPA SIMPLES
+    # ===============================
+    st.subheader("🗺️ Mapa de Entregas por Cidade")
+
+    import numpy as np
+
+    # Agrupar por cidade destino
+    df_mapa = df_f.groupby("cidade_destino").agg(
+        volume=("pedido_id", "count"),
+        atraso_medio=("prazo_real_dias", "mean"),
+        prazo_estimado=("prazo_estimado_dias", "mean")
+    ).reset_index()
+
+    if not df_mapa.empty:
+
+        # Gerar coordenadas fixas por cidade (consistentes)
+        np.random.seed(42)
+
+        cidades = df_mapa["cidade_destino"].unique()
+
+        coordenadas = {
+            cidade: (
+                np.random.uniform(-30, -5),   # latitude Brasil
+                np.random.uniform(-65, -35)   # longitude Brasil
+            )
+            for cidade in cidades
+        }
+
+        df_mapa["lat"] = df_mapa["cidade_destino"].map(lambda x: coordenadas[x][0])
+        df_mapa["lon"] = df_mapa["cidade_destino"].map(lambda x: coordenadas[x][1])
+
+        st.map(df_mapa[["lat", "lon"]], zoom=4)
+
+        st.caption("Tamanho do ponto representa concentração visual. Para análise estratégica use o ranking abaixo.")
+
+        # Ranking complementar
+        st.subheader("🏆 Ranking de Volume por Cidade")
+
+        ranking = df_mapa.sort_values("volume", ascending=False)
+        st.dataframe(ranking, use_container_width=True)
+
+    else:
+        st.info("Nenhum dado disponível para gerar o mapa.")
+
+    st.divider()
+
+    # ===============================
+    # Fluxo Origem → Destino
+    # ===============================
+    st.subheader("🌎 Fluxo de Entregas (Origem → Destino)")
+
+    df_fluxo = (
+        df_f.groupby(["cidade_origem", "cidade_destino"])
+        .size()
+        .reset_index(name="volume")
+        .sort_values("volume", ascending=False)
+    )
+
+    st.dataframe(df_fluxo, use_container_width=True)
+
+    st.caption("🔎 Use esta análise para identificar rotas com maior volume ou gargalos logísticos.")
