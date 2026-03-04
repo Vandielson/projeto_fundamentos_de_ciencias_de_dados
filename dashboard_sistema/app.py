@@ -30,7 +30,14 @@ st.set_page_config(
 # ===============================
 menu = st.sidebar.radio(
     "📚 Navegação",
-    ["Visão Geral", "Estoque", "Vendas", "Compras", "Performance Logística"]
+    [
+        "Visão Geral",
+        "Estoque",
+        "Vendas",
+        "Compras",
+        "Performance Logística",
+        "Supply Chain Estratégico"
+    ]
 )
 
 # ===============================
@@ -1082,3 +1089,181 @@ if menu == "Performance Logística":
     st.dataframe(df_fluxo, use_container_width=True)
 
     st.caption("🔎 Use esta análise para identificar rotas com maior volume ou gargalos logísticos.")
+
+# ===============================
+# ABA SUPPLY CHAIN ESTRATÉGICO
+# ===============================
+if menu == "Supply Chain Estratégico":
+
+    st.title("📦 Dashboard Estratégico de Supply Chain")
+
+    # ===============================
+    # BASES NECESSÁRIAS
+    # ===============================
+    df_produtos = pd.read_csv("dados/FCD_produtos.csv", sep=";")
+    df_compras = pd.read_csv("dados/FCD_compras.csv", sep=";")
+    df_log = pd.read_csv("dados/FCD_logistica.csv", sep=";")
+
+    # Conversões numéricas
+    df_compras["valor_total"] = pd.to_numeric(df_compras["valor_total"], errors="coerce")
+    df_vendas["valor_total"] = pd.to_numeric(df_vendas["valor_total"], errors="coerce")
+
+    # Conversões de data (FORMATO BRASILEIRO)
+    df_vendas["data_venda"] = pd.to_datetime(
+        df_vendas["data_venda"],
+        format="%d/%m/%Y",
+        errors="coerce"
+    )
+
+    df_compras["data_compra"] = pd.to_datetime(
+        df_compras["data_compra"],
+        format="%d/%m/%Y",
+        errors="coerce"
+    )
+
+    # ===============================
+    # FILTROS
+    # ===============================
+    st.sidebar.header("🎛 Filtros Estratégicos")
+
+    data_min = df_vendas["data_venda"].min()
+    data_max = df_vendas["data_venda"].max()
+
+    periodo = st.sidebar.date_input(
+        "Período",
+        [data_min, data_max]
+    )
+
+    fornecedor_sel = st.sidebar.multiselect(
+        "Fornecedor",
+        options=sorted(df_compras["fornecedor"].dropna().unique())
+    )
+
+    produto_sel = st.sidebar.multiselect(
+        "Produto",
+        options=sorted(df_vendas["produto_id"].dropna().unique())
+    )
+
+    transportadora_sel = st.sidebar.multiselect(
+        "Transportadora",
+        options=sorted(df_log["transportadora"].dropna().unique())
+    )
+
+    # ===============================
+    # APLICANDO FILTROS
+    # ===============================
+    df_vf = df_vendas.copy()
+    df_cf = df_compras.copy()
+    df_lf = df_log.copy()
+
+    if len(periodo) == 2:
+        df_vf = df_vf[
+            (df_vf["data_venda"] >= pd.to_datetime(periodo[0])) &
+            (df_vf["data_venda"] <= pd.to_datetime(periodo[1]))
+        ]
+
+    if fornecedor_sel:
+        df_cf = df_cf[df_cf["fornecedor"].isin(fornecedor_sel)]
+
+    if produto_sel:
+        df_vf = df_vf[df_vf["produto_id"].isin(produto_sel)]
+
+    if transportadora_sel:
+        df_lf = df_lf[df_lf["transportadora"].isin(transportadora_sel)]
+
+    st.divider()
+
+    # ===============================
+    # KPIs ESTRATÉGICOS
+    # ===============================
+    st.subheader("📊 KPIs Estratégicos")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    estoque_critico = df[df["quantidade_estoque"] < df["estoque_minimo"]].shape[0]
+    receita_total = df_vf["valor_total"].sum()
+    custo_total_compras = df_cf["valor_total"].sum()
+    margem_bruta = receita_total - custo_total_compras
+
+    top_fornecedor = (
+        df_cf.groupby("fornecedor")["valor_total"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    top_fornecedor_nome = top_fornecedor.index[0] if not top_fornecedor.empty else "-"
+
+    entregas_no_prazo = (
+        (df_lf["prazo_real_dias"] <= df_lf["prazo_estimado_dias"])
+        .mean() * 100
+        if not df_lf.empty else 0
+    )
+
+    col1.metric("⚠️ Estoque Crítico", estoque_critico)
+    col2.metric("💰 Receita Total", formatar_valor_compacto(receita_total))
+    col3.metric("🏭 Top Fornecedor", top_fornecedor_nome)
+    col4.metric("🚚 Entregas no Prazo", f"{entregas_no_prazo:.1f}%")
+
+    st.divider()
+
+    # ===============================
+    # INDICADORES FINANCEIROS
+    # ===============================
+    st.subheader("💵 Indicadores Financeiros")
+
+    col5, col6 = st.columns(2)
+
+    col5.metric("💸 Custo Total de Compras", formatar_valor_compacto(custo_total_compras))
+    col6.metric("📈 Margem Bruta Estimada", formatar_valor_compacto(margem_bruta))
+
+    st.divider()
+
+    # ===============================
+    # GRÁFICO — Vendas vs Estoque
+    # ===============================
+    st.subheader("📊 Vendas vs Nível de Estoque")
+
+    vendas_por_prod = df_vf.groupby("produto_id")["quantidade_vendida"].sum()
+    estoque_por_prod = df.groupby("produto_id")["quantidade_estoque"].sum()
+
+    df_combo = pd.DataFrame({
+        "Vendas": vendas_por_prod,
+        "Estoque": estoque_por_prod
+    }).fillna(0).sort_values("Vendas", ascending=False).head(10)
+
+    fig, ax = plt.subplots(figsize=(8, 4), facecolor="#0E1117")
+
+    ax.barh(df_combo.index.astype(str), df_combo["Vendas"], label="Vendas", color="#00BFFF")
+    ax.barh(df_combo.index.astype(str), df_combo["Estoque"], label="Estoque", color="#FF6347", alpha=0.6)
+
+    ax.set_title("Top 10 Produtos — Vendas vs Estoque", color="white")
+    ax.tick_params(colors="white")
+    ax.legend(facecolor="#0E1117", labelcolor="white")
+    ax.set_facecolor("#0E1117")
+    fig.patch.set_facecolor("#0E1117")
+
+    st.pyplot(fig, use_container_width=True)
+
+    st.divider()
+
+    # ===============================
+    # COMPRAS VS VENDAS
+    # ===============================
+    st.subheader("💰 Compras vs Vendas")
+
+    df_fin = pd.DataFrame({
+        "Categoria": ["Compras", "Vendas"],
+        "Valor": [custo_total_compras, receita_total]
+    })
+
+    fig2, ax2 = plt.subplots(figsize=(6, 4), facecolor="#0E1117")
+
+    ax2.bar(df_fin["Categoria"], df_fin["Valor"], color=["#FF6347", "#00BFFF"])
+    ax2.set_title("Fluxo Financeiro", color="white")
+    ax2.tick_params(colors="white")
+    ax2.set_facecolor("#0E1117")
+    fig2.patch.set_facecolor("#0E1117")
+
+    st.pyplot(fig2, use_container_width=True)
+
+    st.caption("🔎 Visão consolidada da cadeia de suprimentos para apoio à decisão estratégica.")  
