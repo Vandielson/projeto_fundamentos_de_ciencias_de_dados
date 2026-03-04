@@ -25,7 +25,8 @@ Projeto/
 │   ├── FCD_produtos.csv         # Base de produtos
 │   ├── FCD_vendas.csv           # Base de vendas
 │   ├── FCD_clientes.csv         # Base de clientes
-│   └── FCD_compras.csv          # Base de compras e fornecedores
+│   ├── FCD_compras.csv          # Base de compras e fornecedores
+|   └── FCD_logistica.csv        # Base de logística
 │
 ├── README.md                    # Documentação do projeto
 │
